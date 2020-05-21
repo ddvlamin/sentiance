@@ -16,8 +16,61 @@ assert outside not in locations
 
 """
 
+from math import radians, cos, sin, asin, sqrt
+
 import numpy as np
 import pandas as pd
+
+def decode_geohash(geohash, nbits):
+    binhash = bin(geohash)[2:]
+    prefix = '0' * (nbits-len(binhash))
+    binhash = prefix + binhash
+
+    minLat = -90
+    maxLat = 90
+    minLng = -180
+    maxLng = 180    
+
+    for i, bit in enumerate(binhash):
+        if i%2 == 0:
+            midpoint = (minLng + maxLng) / 2
+            if bit == '0':
+                maxLng = midpoint
+            else:
+                minLng = midpoint
+        else:
+            midpoint = (minLat + maxLat) / 2
+            if bit == '0':
+                maxLat = midpoint
+            else:
+                minLat = midpoint
+
+    resultLng = (minLng + maxLng) / 2
+    resultLat = (minLat + maxLat) / 2
+
+    return Location(resultLat, resultLng, nbits)
+
+
+def haversine(loc1, loc2):
+    """
+    Calculate the great circle distance between two points 
+    on the earth (specified in decimal degrees)
+    
+    from https://stackoverflow.com/questions/4913349/haversine-formula-in-python-bearing-and-distance-between-two-gps-points
+    """
+    lat1, lon1 = loc1
+    lat2, lon2 = loc2
+
+    # convert decimal degrees to radians 
+    lon1, lat1, lon2, lat2 = map(radians, [lon1, lat1, lon2, lat2])
+
+    # haversine formula 
+    dlon = lon2 - lon1 
+    dlat = lat2 - lat1 
+    a = sin(dlat/2)**2 + cos(lat1) * cos(lat2) * sin(dlon/2)**2
+    c = 2 * asin(sqrt(a)) 
+    r = 6371 # Radius of earth in kilometers. Use 3956 for miles
+    return c * r
 
 class Location(tuple):
     polar_circumference = 40007863
@@ -32,18 +85,52 @@ class Location(tuple):
         self._nbits = nbits
     
     def lat_accuracy(self):
+        """
+        Computes the latitude accuracy according to the number of bits used for encoding
+
+        32 bits (or 16 bits for latitude) has an 305 meter accuracy
+        40 bits (or 20 bits for latitude) has an 19 meter accuracy
+
+        :returns tuple: (maximumr error in meters, maximum error in degrees)
+        """
         lat_nbits = np.floor(self._nbits/2)
         one_degree_dist = Location.polar_circumference/180
         max_error = 90*(2**-lat_nbits)
         return (one_degree_dist*max_error), max_error
 
     def long_accuracy(self):
+        """
+        Computes the longitude accuracy according to the number of bits used for encoding
+
+        Note: the accuracy depends on the latitude (as the earth's circumference is smaller
+        at the non-zero latitudes than it is at the equator)
+
+        :returns tuple: (maximumr error in meters, maximum error in degrees)
+        """
         lng_nbits = np.ceil(self._nbits/2)
         one_degree_dist = (Location.equator_circumference/360)*np.cos(np.deg2rad(self._lat))
         max_error = 180*(2**-lng_nbits)
         return (one_degree_dist*max_error), max_error
-    
-    def encode(self):    
+   
+    def distance(self, loc):
+        return haversine(self, loc)
+
+    def encode(self):  
+        """
+        Computes a hash based on the latitude and longitude
+
+        The hash for nearby points should also be close together
+
+        The precision depends on the number of bits specified
+
+        The computation is based on:
+          https://www.factual.com/blog/how-geohashes-work/
+          https://en.wikipedia.org/wiki/Geohash
+
+        TODO: there are faster ways to compute the hash only using bit operations
+
+        :returns: a hash for latitude and longitude
+        """
         if not hasattr(self, "_geohash"):
             minLat = -90
             maxLat = 90
@@ -82,51 +169,20 @@ class Location(tuple):
         loc_enc = loc.encode()
         return loc_enc == self.encode()
 
-    def decode(self):
+    
+    def bounding_box(self):
         if not hasattr(self, "_geohash"):
             self.encode()
             
-        if not hasattr(self, "_hashpoint"):
-            binhash = bin(self._geohash)[2:]
-            prefix = '0' * (self._nbits-len(binhash))
-            binhash = prefix + binhash
-
-            minLat = -90
-            maxLat = 90
-            minLng = -180
-            maxLng = 180    
-
-            for i, bit in enumerate(binhash):
-                if i%2 == 0:
-                    midpoint = (minLng + maxLng) / 2
-                    if bit == '0':
-                        maxLng = midpoint
-                    else:
-                        minLng = midpoint
-                else:
-                    midpoint = (minLat + maxLat) / 2
-                    if bit == '0':
-                        maxLat = midpoint
-                    else:
-                        minLat = midpoint
-
-            resultLng = (minLng + maxLng) / 2
-            resultLat = (minLat + maxLat) / 2
-
-            self._hashpoint = Location(resultLat, resultLng, self._nbits)
-        
-        return self._hashpoint
-    
-    def bounding_box(self):
-        self.decode()
-        _, max_lat_error = self.lat_accuracy()
-        _, max_lng_error = self.long_accuracy()
+        loc = decode_geohash(self._geohash, self._nbits)
+        _, max_lat_error = loc.lat_accuracy()
+        _, max_lng_error = loc.long_accuracy()
         
         return (
-            self._hashpoint._lat - max_lat_error,
-            self._hashpoint._lat + max_lat_error,
-            self._hashpoint._lng - max_lng_error,
-            self._hashpoint._lng + max_lng_error
+            loc._lat - max_lat_error,
+            loc._lat + max_lat_error,
+            loc._lng - max_lng_error,
+            loc._lng + max_lng_error
         )
     
     def bounding_corners(self):
