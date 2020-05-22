@@ -1,4 +1,8 @@
 """
+To remove the gravity component the android docs recommend to isolate the constant gravity component by using a low pass filter and subtracting it 
+https://developer.android.com/reference/android/hardware/SensorEvent.html
+
+However the following explains that removing the gravity component is not that easy
 https://physics.stackexchange.com/questions/316178/how-to-remove-gravity-component-from-accelerometer-x-y-readings
 
 label 1 is walking
@@ -22,7 +26,7 @@ import numpy as np
 
 from scipy.fftpack import fft 
 
-from sklearn.svm import LinearSVC
+from sklearn.linear_model import LogisticRegression
 
 NANO = 10**9
 TIME_COLUMN = "seg_1_taxis"
@@ -41,18 +45,16 @@ def determine_sample_frequency(df, time_column=TIME_COLUMN, time_resolution=NANO
 
   return sample_frequency
 
-def filter_gravity(signal):
-  """
-  Filter out the gravity offset component
-
-  https://developer.android.com/reference/android/hardware/SensorEvent.html
-  """
+def normalize_signal(signal):
   signal_mean = np.mean(signal)
-  return signal-signal_mean
+  signal_std = np.std(signal)
+  return (signal-signal_mean)/signal_std
 
 def preprocess_data(sensors_df, labels_df, n_segments, n_samples):
   """
-  :returns: total accelerations (size of vector) and array of labels
+  Computes the size of the acceleration vector and normalizes the signal
+
+  :returns: normalized acceleration (size of vector) and array of labels
   """
   total_accelerations = np.zeros((n_segments, n_samples))
   labels = np.zeros((n_segments,))
@@ -63,10 +65,9 @@ def preprocess_data(sensors_df, labels_df, n_segments, n_samples):
     accelerations = sensors_df[columns].values
     label = labels_df[labels_df["segment_id"]==f"seg_{seg_id}"]["label"].values[0]
     
-    for i in range(3):
-      accelerations[:,i] = filter_gravity(accelerations[:,i])
-    
     total_accelerations[seg_id-1, :] = np.sqrt(np.sum(np.power(accelerations,2),axis=1))
+    total_accelerations[seg_id-1, :] = normalize_signal(total_accelerations[seg_id-1, :])
+
     labels[seg_id-1] = label
 
   return total_accelerations, labels
@@ -88,6 +89,12 @@ def compute_ffts(total_accelerations, sample_frequency):
       xF, ffts[seg_id,:] = compute_fft(total_accelerations[seg_id,:], sample_frequency)
 
   return xF, ffts
+
+def signal_entropy(signal):
+  n_samples = len(signal)
+  hist = np.histogram(signal, range=(-5,5), bins=100,density=True)[0]
+  hist = hist[hist!=0]
+  return -np.sum(hist*np.log2(hist))
 
 def largest_monotonic_sequence(signal, sign=1):
   length_largest_sequence = 0
@@ -118,21 +125,24 @@ def compute_feature_matrix(total_accelerations, sample_frequency):
   
   feature_matrix = np.zeros((n_segments, 2))
   
-  lb = int(0.75*(n_samples/sample_frequency))
-  ub = int(2*(n_samples/sample_frequency))
-
   xF, ffts = compute_ffts(total_accelerations, sample_frequency)
-  feature_matrix[:,0] = ffts[:,lb:ub].sum(axis=1)
+  
+  lb1 = int(1.6*(n_samples/sample_frequency))
+  ub1 = int(1.9*(n_samples/sample_frequency))
+  
+  feature_matrix[:,0] = ffts[:,lb1:ub1].sum(axis=1)
   
   for i in range(n_segments):
-      start_index, length = largest_monotonic_sequence(total_accelerations[i,:])
-      start_index_decrease, length_decrease = largest_monotonic_sequence(total_accelerations[i,:],-1)
-      feature_matrix[i,1] = max(length,length_decrease)/sample_frequency
+    start_index, length = largest_monotonic_sequence(total_accelerations[i,:])
+    start_index_decrease, length_decrease = largest_monotonic_sequence(total_accelerations[i,:],-1)
+    feature_matrix[i,1] = max(length,length_decrease)/sample_frequency
+    feature_matrix[i,1] = np.mean(total_accelerations[i,:])
+    feature_matrix[i,1] = signal_entropy(total_accelerations[i,:])
 
   return feature_matrix
 
-def build_classifier(feature_matrix, labels):
-  classifier = LinearSVC()
+def build_classifier(feature_matrix, labels, C=1):
+  classifier = LogisticRegression(C=C)
   classifier.fit(feature_matrix, labels)
   return classifier
 
