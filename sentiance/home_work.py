@@ -1,8 +1,11 @@
+import pickle
 import json
 from collections import Counter
 
 import pandas as pd
 import numpy as np
+
+from sklearn.cluster import MeanShift
 
 from sentiance.location import Location, decode_geohash
 
@@ -10,7 +13,6 @@ NBITS = 30
 MIN_DAY_DENSITY = 0.5
 MIN_DURATION = 1
 MAX_DIST = 500
-
 
 def load_person_data(filepath, sep=";"):
   return pd.read_csv(filepath,sep=sep).rename(
@@ -29,7 +31,7 @@ def add_columns(df, df_format='%Y%m%d%H%M%z', geohash_precision=NBITS):
 
   def _compute_geohash(row, nbits=geohash_precision):
     loc = Location(row["latitude"], row["longitude"], nbits)
-    return loc.encode()
+    return loc.geohash
     
   df["geohash"] = df.apply(_compute_geohash, axis=1)
 
@@ -49,7 +51,7 @@ def create_location_featureset(df, weekday_counter, min_day_density=MIN_DAY_DENS
   :returns DataFrame: each record represents a location with following columns:
     geohash: the geohash computed based on the give lat and long
     day_frequency: percentage of days that this geo location pops up
-    mean_duration: the average duration one stays that location
+    mean_duration: the average duration one stays at that location
     mean_starthour: the average hour of the day one arrives at that location
     mean_lat, mean_lng: the average of latitude and longitude measurements of this location (should reduce some measurement variance)
     number_of_days: the number of weekdays that the persons visits this location with a minimum percentage of *min_day_density* 
@@ -80,6 +82,10 @@ def create_location_featureset(df, weekday_counter, min_day_density=MIN_DAY_DENS
   return pd.DataFrame(hash_df)
 
 def filter_records(df, min_duration=MIN_DURATION):
+  """
+  Filter out locations where the person has been (on average) no longer than min_duration
+  and where the visit frequency of that location is below the mean of all locations
+  """
   mean_frequency = np.mean(df["day_frequency"].unique())
   filtered_df = df[(df["mean_duration"]>=min_duration) &
                    (df["day_frequency"]>mean_frequency)]
@@ -129,33 +135,84 @@ def remove_outlier_locations(df, max_dist=MAX_DIST):
 
   return df
 
+def create_feature_matrix(
+    filepath,
+    geohash_precision=NBITS, 
+    min_day_density=MIN_DAY_DENSITY):
+
+  df = load_person_data(filepath)
+  df = add_columns(df,geohash_precision=geohash_precision)
+  weekday_counter = weekday_counts(df)
+  df = create_location_featureset(df, weekday_counter, min_day_density=min_day_density)
+
+  return df
+
+def create_output(home_df, work_df):
+  result = {
+    "home": [],
+    "work": []
+  }
+  for _, row in home_df.iterrows():
+    result["home"].append((row["mean_lat"],row["mean_lng"]))
+
+  for _, row in work_df.iterrows():
+    result["work"].append((row["mean_lat"],row["mean_lng"]))
+
+  return result
+
 def probable_home_work_locations(
       filepath, 
       geohash_precision=NBITS, 
       min_day_density=MIN_DAY_DENSITY, 
       min_duration=MIN_DURATION,
       max_dist=MAX_DIST):
-  
-  df = load_person_data(filepath)
-  df = add_columns(df,geohash_precision=geohash_precision)
-  weekday_counter = weekday_counts(df)
-  df = create_location_featureset(df, weekday_counter, min_day_density=min_day_density)
+ 
+  df = create_feature_matrix(filepath, geohash_precision, min_day_density)
   df = filter_records(df, min_duration=min_duration)
   df = remove_outlier_locations(df, max_dist=max_dist)
 
-  result = {
-    "home": [],
-    "work": []
-  }
   home_df = df[df["number_of_days"]>=6][["mean_lat","mean_lng"]]
-  for _, row in home_df.iterrows():
-    result["home"].append((row["mean_lat"],row["mean_lng"]))
-
   work_df = df[df["number_of_days"]<6][["mean_lat","mean_lng"]]
-  for _, row in work_df.iterrows():
-    result["work"].append((row["mean_lat"],row["mean_lng"]))
 
-  return result
+  return create_output(home_df, work_df)
+
+def build_cluster_model(
+      filepath, 
+      geohash_precision=NBITS, 
+      min_day_density=MIN_DAY_DENSITY):
+  
+  df = create_feature_matrix(filepath, geohash_precision, min_day_density)
+  
+  feature_matrix = df[["day_frequency","mean_duration","number_of_days"]].values
+  feature_matrix[:,1] /= 24
+  feature_matrix[:,2] /= 7
+  
+  clusterer = MeanShift()
+  clusterer.fit(feature_matrix)
+
+  return clusterer
+
+def apply_cluster_model( 
+      filepath, 
+      modelfile,
+      geohash_precision=NBITS, 
+      min_day_density=MIN_DAY_DENSITY):
+  
+  df = create_feature_matrix(filepath, geohash_precision, min_day_density)
+
+  with open(modelfile,"rb") as fin:
+    clusterer = pickle.load(fin)
+  
+  feature_matrix = df[["day_frequency","mean_duration","number_of_days"]].values
+  feature_matrix[:,1] /= 24
+  feature_matrix[:,2] /= 7
+  
+  clusters = clusterer.predict(feature_matrix)
+
+  home_df = df.iloc[clusters==4,:] #home
+  work_df = pd.concat([df.iloc[clusters==5,:],df.iloc[clusters==6,:]])
+
+  return create_output(home_df, work_df)
 
 if __name__ == "__main__":
   home_work_1 = probable_home_work_locations("../data/Copy of person.1.csv")
