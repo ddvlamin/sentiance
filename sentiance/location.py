@@ -74,6 +74,11 @@ def haversine(loc1, loc2):
   :type loc2: Location
 
   :returns: earth distance between loc1 and loc2 in kilometers
+
+  >>> gent = Location(51.054340, 3.717424)
+  >>> apen = Location(51.219448, 4.402464)
+  >>> 50 < haversine(gent, apen) < 70
+  True
   """
   lat1, lon1 = loc1
   lat2, lon2 = loc2
@@ -95,12 +100,15 @@ def lat_error(nbits):
 
   Example:
 
-    32 bits (or 16 bits for latitude) has an 305 meter accuracy
-    40 bits (or 20 bits for latitude) has an 19 meter accuracy
+    16 bits for latitude has an 305 meter accuracy
+    20 bits for latitude has an 19 meter accuracy
 
   :param nbits: number of bits used to encode latitude
 
   :returns tuple: (maximumr error in meters, maximum error in degrees)
+
+  >>> 18 < lat_error(20)[0] < 20
+  True
   """
   one_degree_dist = POLAR_CIRCUMFERENCE/180
   max_error = 90*(2**-nbits)
@@ -117,6 +125,14 @@ def long_error(lat, nbits):
   :type Location:
 
   :returns tuple: (maximum error in meters, maximum error in degrees)
+
+  >>> err1 = long_error(51, 15)[0]
+  >>> err2 = long_error(60, 15)[0]
+  >>> err1 > err2
+  True
+  >>> err2 = long_error(51, 10)[0]
+  >>> err1 < err2
+  True
   """
   one_degree_dist = (EQUATOR_CIRCUMFERENCE/360)*np.cos(np.deg2rad(lat))
   max_error = 180*(2**-nbits)
@@ -126,10 +142,6 @@ class Location(tuple):
   """
   This class represents a Location tuple with latitude and longitude coordinates
   It uses an encoding with nbits precision to test whether two difference locations are the same or note
-
-  >>>hoboken = Location(51.17165565490723, 4.346981048583984, 36)
-  >>>neighbor1 = Location(51.1720, 4.3476, 36)
-  >>>outside = Location(51.1716,4.3459, 36)
 
   """
   
@@ -145,6 +157,10 @@ class Location(tuple):
     :param nbits: precision in bits for the lat long encoding (see :func:`sentiance.location.Location.lat_error` for more details on the meaning of nbits precision)
     :type nbits: int
     """
+  
+    if not (-90 <= latitude <= 90) or not (-180 <= longitude <= 180):
+      raise ValueError("latitude should be between -90 and 90 degrees, longitude between -180 and 180 degrees")
+
     self.__lat = latitude
     self.__lng = longitude
     self.__nbits = nbits
@@ -161,30 +177,6 @@ class Location(tuple):
   def nbits(self):
     return self.__nbits
   
-  """
-  def __get_lat(self):
-    return self.__lat
-
-  def __get_lng(self):
-    return self.__lng
-
-  def __get_nbits(self):
-    return self.__nbits
-  
-  def __set_lat(self, lat):
-    raise AttributeError("can't set attribute")
-  
-  def __set_lng(self, lat):
-    raise AttributeError("can't set attribute")
-
-  def __set_nbits(self, nbits):
-    raise AttributeError("can't set attribute")
-  
-  lng = property(__get_lng, __set_lng)
-  lat = property(__get_lat, __set_lat)
-  nbits = property(__get_nbits, __set_nbits)
-  """
-
   @property
   def lat_error(self):
     """
@@ -200,6 +192,12 @@ class Location(tuple):
     """
     lng_nbits = np.ceil(self.nbits/2)
     return long_error(self.lat, lng_nbits)
+
+  @property
+  def geohash(self):
+    if not hasattr(self, "__geohash"):
+      self.__geohash = self.__encode()
+    return self.__geohash
  
   def distance(self, loc):
     """
@@ -210,7 +208,7 @@ class Location(tuple):
     """
     return haversine(self, loc)
 
-  def encode(self):  
+  def __encode(self):  
     """
     Computes a hash based on the latitude and longitude
 
@@ -225,59 +223,56 @@ class Location(tuple):
     TODO: there are faster ways to compute the hash only using bit operations
 
     :returns: a hash for latitude and longitude
-
-    
-    >>>hoboken = Location(51.17165565490723, 4.346981048583984, 36)
-    >>>neighbor1 = Location(51.1720, 4.3476, 36)
-    >>>outside = Location(51.1716,4.3459, 36)
-    >>>hoboken.
+ 
+    >>> hoboken = Location(51.17165565490723, 4.346981048583984, 36)
+    >>> neighbor1 = Location(51.1720, 4.3476, 36)
+    >>> outside = Location(51.1716,4.3459, 36)
+    >>> hoboken.geohash == neighbor1.geohash
+    True
+    >>> hoboken.geohash == outside.geohash
+    False
 
     """
-    if not hasattr(self, "_geohash"):
-      minLat = -90
-      maxLat = 90
-      minLng = -180
-      maxLng = 180
+    minLat = -90
+    maxLat = 90
+    minLng = -180
+    maxLng = 180
 
-      result = 0
+    result = 0
 
-      for i in range(self._nbits):
-        if (i % 2 == 0):                
-          midpoint = (minLng + maxLng) / 2
-          if (self._lng < midpoint):
-            result <<= 1            
-            maxLng = midpoint
-          else:
-            result = result << 1 | 1
-            minLng = midpoint
+    for i in range(self.nbits):
+      if (i % 2 == 0):                
+        midpoint = (minLng + maxLng) / 2
+        if (self.lng < midpoint):
+          result <<= 1            
+          maxLng = midpoint
         else:
-          midpoint = (minLat + maxLat) / 2
-          if (self._lat < midpoint):
-            result <<= 1             
-            maxLat = midpoint
-          else:
-            result = result << 1 | 1
-            minLat = midpoint
-
-      self._geohash = result
-                  
-    return self._geohash
+          result = result << 1 | 1
+          minLng = midpoint
+      else:
+        midpoint = (minLat + maxLat) / 2
+        if (self.lat < midpoint):
+          result <<= 1             
+          maxLat = midpoint
+        else:
+          result = result << 1 | 1
+          minLat = midpoint
+ 
+    return result
   
   def __hash__(self):
     """
     Computes encoding so that lat and long coordinates that are close to each other (in terms of precision) might have the same encoding
     :return: lat and long encoding 
     """
-    enc = self.encode()
-    return enc
+    return self.geohash
   
   def __eq__(self, loc):
     """
     Test whether this location is the same as loc based on the geohash, so lat and long coordinates that are close
     to each other (in terms of precision) might have the same encoding and test equal
     """
-    loc_enc = loc.encode()
-    return loc_enc == self.encode()
+    return loc.geohash == self.geohash
   
   def bounding_box(self):
     """
@@ -289,19 +284,16 @@ class Location(tuple):
       upper side of rectangle,
       left side of rectangle,
       right side of rectangle)
-    """
-    if not hasattr(self, "_geohash"):
-      self.encode()
-        
-    loc = decode_geohash(self._geohash, self._nbits)
+    """ 
+    loc = decode_geohash(self.geohash, self.nbits)
     _, max_lat_error = loc.lat_error
     _, max_lng_error = loc.long_error
     
     return (
-      loc._lat - max_lat_error,
-      loc._lat + max_lat_error,
-      loc._lng - max_lng_error,
-      loc._lng + max_lng_error
+      loc.lat - max_lat_error,
+      loc.lat + max_lat_error,
+      loc.lng - max_lng_error,
+      loc.lng + max_lng_error
     )
   
   def bounding_corners(self):
@@ -379,3 +371,7 @@ class UserLocationMap(dict):
 
     def __setitem__(self, tpl, value):
       raise NotImplementedError("set item not implemented")
+
+if __name__ == "__main__":
+  import doctest
+  doctest.testmod()
