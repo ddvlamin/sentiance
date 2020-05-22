@@ -1,5 +1,10 @@
+### Installation
 
-Question 1 - Data lookup:
+You can install the necessary modules to execute the notebook by installing
+
+pip install sentiance_ddvlamin-0.0.1-py3-none-any.whl
+
+### Question 1 - Data lookup:
 
 I've created a class Location which is a immutable tuple containing latitude and longitude coordinates
 
@@ -27,7 +32,7 @@ Complexity
   Once the set of user locations is built, you can do a lookup in constant time, depending on the number of precision bits that need to be computed, i.e. O(nbits) or O(1) if we consider this constant
   Memory complexity: depends on the precision, the lower the precision the more locations are collapsed on one another. Per record that is stored one only needs to reserve memory for storing the Location object (latitude, longitude, nbits, geohash). So the complexity is sublinear if the precision in not to high. There is of course also overhead for keeping the set structure
 
-Question 2 - Home-Work:
+### Question 2 - Home-Work:
 
   The algorithm:
   The goal is to compute some features per location, where location is determined by the precision of the Location object (as discussed in Question 1). So samples with lat long coordinates that are close enough will be mapped to the same location.
