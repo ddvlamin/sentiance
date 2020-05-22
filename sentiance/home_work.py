@@ -194,7 +194,7 @@ def build_cluster_model(
 
 def apply_cluster_model( 
       filepath, 
-      modelfile="../models/work_home_classifier.bin",
+      modelfile,
       geohash_precision=NBITS, 
       min_day_density=MIN_DAY_DENSITY):
   
@@ -214,13 +214,3 @@ def apply_cluster_model(
 
   return create_output(home_df, work_df)
 
-if __name__ == "__main__":
-  home_work_1 = probable_home_work_locations("../data/Copy of person.1.csv")
-  print("Probably home an work locations for person 1")
-  print(json.dumps(home_work_1, indent=2))
-  home_work_2 = probable_home_work_locations("../data/Copy of person.2.csv")
-  print("Probably home an work locations for person 2")
-  print(json.dumps(home_work_2, indent=2))
-  home_work_3 = probable_home_work_locations("../data/Copy of person.3.csv")
-  print("Probably home an work locations for person 3")
-  print(json.dumps(home_work_3, indent=2))
