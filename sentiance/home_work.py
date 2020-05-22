@@ -12,7 +12,7 @@ from sentiance.location import Location, decode_geohash
 NBITS = 30
 MIN_DAY_DENSITY = 0.5
 MIN_DURATION = 1
-MAX_DIST = 500
+MAX_DIST = 200
 
 def load_person_data(filepath, sep=";"):
   return pd.read_csv(filepath,sep=sep).rename(
