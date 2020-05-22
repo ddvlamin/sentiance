@@ -1,7 +1,15 @@
+import os
 import setuptools
 
 with open("README.md", "r") as fh:
   long_description = fh.read()
+
+thelibFolder = os.path.dirname(os.path.realpath(__file__))
+requirementPath = thelibFolder + '/requirements.txt'
+install_requires = [] 
+if os.path.isfile(requirementPath):
+    with open(requirementPath) as f:
+        install_requires = f.read().splitlines()
 
 setuptools.setup(
   name="sentiance-ddvlamin", # Replace with your own username
@@ -19,4 +27,6 @@ setuptools.setup(
       "Operating System :: OS Independent",
   ],
   python_requires='>=3.8',
+  install_requires=install_requires,
+  include_package_data=True
 )

@@ -194,7 +194,7 @@ def build_cluster_model(
 
 def apply_cluster_model( 
       filepath, 
-      modelfile,
+      modelfile="../models/work_home_classifier.bin",
       geohash_precision=NBITS, 
       min_day_density=MIN_DAY_DENSITY):
   
