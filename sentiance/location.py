@@ -374,7 +374,7 @@ if __name__ == "__main__":
   doctest.testmod()
 
   parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-  parser.add_argument("datafile",help="csv file with latitude and longitude columns of the user's location")
+  parser.add_argument("datafile",help="csv file with latitude and longitude columns of the user's locations")
   parser.add_argument("latitude", type=float, help="latitude coordinate you want to check in the user's locations")
   parser.add_argument("longitude", type=float, help="longitude coordinate you want to check in the user's locations")
   parser.add_argument("--precision", type=int, default=NBITS, help="precision of location encoding, default is 34 or approximately a max latitude error of roughly 150 meters")
