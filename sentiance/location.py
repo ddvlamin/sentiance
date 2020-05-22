@@ -1,20 +1,30 @@
 """
-NBITS = 36
-hoboken = Location(51.17165565490723, 4.346981048583984, NBITS)
-neighbor1 = Location(51.1720, 4.3476, NBITS)
-outside = Location(51.1716,4.3459, NBITS)
+This module provides a Location class that represents a lat long place
 
-(47.92519731131873, 0.0006866455078125)
-(76.3089427947998, 0.00034332275390625)
-(51.17156982421875, 51.17225646972656, 4.346466064453125, 4.34783935546875)
-((51.17156982421875, 4.346466064453125), (51.17225646972656, 4.346466064453125), (51.17225646972656, 4.34783935546875), (51.17156982421875, 4.34783935546875))
+The locations are encoded with a precision specified by the number of bits
 
-locations = set()
-locations.add(hoboken)
-assert neighbor1 in locations
-assert outside not in locations
+Locations that are close enough are considered the same
+
+There is also a class UserLocations that creates a set of user locations based on a csv file
+Locations that are similar according to the precision are collapsed and regarded as one and the same location
+
+Example:
+
+  .. code-block:: bash
+
+    $python location.py "../data/Copy of person.1.csv" 51.209335 4.3883753
+    (51.209335, 4.3883753) found in set
+
+    $python location.py "../data/Copy of person.1.csv" 51.209325 4.3883763
+    (51.209325, 4.3883763) found in set
+
+    $python location.py "../data/Copy of person.1.csv" 50.209325 4.3883763
+    (50.209325, 4.3883763) not found in set (maybe decrease precision?)
 
 """
+
+import sys
+import argparse
 
 from math import radians, cos, sin, asin, sqrt
 
@@ -23,6 +33,7 @@ import pandas as pd
 
 POLAR_CIRCUMFERENCE = 40007863
 EQUATOR_CIRCUMFERENCE = 40075017
+NBITS = 34
 
 def decode_geohash(geohash, nbits):
   """
@@ -271,7 +282,16 @@ class Location(tuple):
     """
     Test whether this location is the same as loc based on the geohash, so lat and long coordinates that are close
     to each other (in terms of precision) might have the same encoding and test equal
+
+    >>> hoboken_high = Location(51.17165565490723, 4.346981048583984, 36)
+    >>> hoboken_low = Location(51.17165565490723, 4.346981048583984, 30)
+    >>> hoboken_low == hoboken_high
+    Traceback (most recent call last):
+      ...
+    ValueError: can't compare locations of different precision 30 and 36
     """
+    if self.nbits != loc.nbits:
+      raise ValueError(f"can't compare locations of different precision {self.nbits} and {loc.nbits}")
     return loc.geohash == self.geohash
   
   def bounding_box(self):
@@ -349,29 +369,27 @@ class UserLocations(set):
     loc = Location(tpl[0], tpl[1], self._nbits)
     super().add(loc)
 
-class UserLocationMap(dict):
-    def __init__(self, filepath, nbits, sep=";"):
-        self._nbits = nbits
-        df = pd.read_csv(filepath, sep=sep)
-
-        for row in df.to_dict(orient="records"):
-            loc = Location(row["latitude"], row["longitude"], self._nbits)
-            try:
-              self[loc].append(row)
-            except KeyError:
-              self[loc] = [row]
-
-    def __contains__(self, tpl):
-      loc = Location(tpl[0], tpl[1], self._nbits)
-      return super().__contains__(loc)
-    
-    def __getitem__(self, tpl):
-      loc = Location(tpl[0], tpl[1], self._nbits)
-      return self[loc]
-
-    def __setitem__(self, tpl, value):
-      raise NotImplementedError("set item not implemented")
-
 if __name__ == "__main__":
   import doctest
   doctest.testmod()
+
+  parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+  parser.add_argument("datafile",help="csv file with latitude and longitude columns of the user's location")
+  parser.add_argument("latitude", type=float, help="latitude coordinate you want to check in the user's locations")
+  parser.add_argument("longitude", type=float, help="longitude coordinate you want to check in the user's locations")
+  parser.add_argument("--precision", type=int, default=NBITS, help="precision of location encoding, default is 34 or approximately a max latitude error of roughly 150 meters")
+
+  args = parser.parse_args(sys.argv[1:])
+  datafile = args.datafile
+  latitude = args.latitude
+  longitude = args.longitude
+  precision = args.precision
+
+  locations = UserLocations(datafile, precision)
+  user_location = Location(latitude, longitude, precision)
+
+  if user_location in locations:
+    print(f"{user_location} found in set")
+  else:
+    print(f"{user_location} not found in set (maybe decrease precision?)")
+
