@@ -21,6 +21,9 @@ from math import radians, cos, sin, asin, sqrt
 import numpy as np
 import pandas as pd
 
+POLAR_CIRCUMFERENCE = 40007863
+EQUATOR_CIRCUMFERENCE = 40075017
+
 def decode_geohash(geohash, nbits):
   """
   Computes the latitude and longitude of the given geohash assuming a nbits precision
@@ -85,14 +88,50 @@ def haversine(loc1, loc2):
   c = 2 * asin(sqrt(a)) 
   r = 6371 # Radius of earth in kilometers. Use 3956 for miles
   return c * r
+  
+def lat_error(nbits):
+  """
+  Computes the maximum latitude error according to the number of bits used for encoding
+
+  Example:
+
+    32 bits (or 16 bits for latitude) has an 305 meter accuracy
+    40 bits (or 20 bits for latitude) has an 19 meter accuracy
+
+  :param nbits: number of bits used to encode latitude
+
+  :returns tuple: (maximumr error in meters, maximum error in degrees)
+  """
+  one_degree_dist = POLAR_CIRCUMFERENCE/180
+  max_error = 90*(2**-nbits)
+  return (one_degree_dist*max_error), max_error
+
+def long_error(lat, nbits):
+  """
+  Computes the maximum longitude error according to the number of bits used for encoding
+
+  Note: the accuracy depends on the latitude (as the earth's circumference is smaller
+  at the non-zero latitudes than it is at the equator)
+  
+  :param loc: location for which to compute the maximum longitude encoding error
+  :type Location:
+
+  :returns tuple: (maximum error in meters, maximum error in degrees)
+  """
+  one_degree_dist = (EQUATOR_CIRCUMFERENCE/360)*np.cos(np.deg2rad(lat))
+  max_error = 180*(2**-nbits)
+  return (one_degree_dist*max_error), max_error
 
 class Location(tuple):
   """
   This class represents a Location tuple with latitude and longitude coordinates
   It uses an encoding with nbits precision to test whether two difference locations are the same or note
+
+  >>>hoboken = Location(51.17165565490723, 4.346981048583984, 36)
+  >>>neighbor1 = Location(51.1720, 4.3476, 36)
+  >>>outside = Location(51.1716,4.3459, 36)
+
   """
-  POLAR_CIRCUMFERENCE = 40007863
-  EQUATOR_CIRCUMFERENCE = 40075017
   
   def __new__(cls, latitude, longitude, nbits=40):
     return super().__new__(cls, (latitude, longitude))
@@ -103,40 +142,64 @@ class Location(tuple):
     :type latitude: float
     :param longitude: longitude in decimal degrees
     :type longitude: float
-    :param nbits: precision in bits for the lat long encoding (see :func:`sentiance.location.Location.lat_accuracy` for more details on the meaning of nbits precision)
+    :param nbits: precision in bits for the lat long encoding (see :func:`sentiance.location.Location.lat_error` for more details on the meaning of nbits precision)
     :type nbits: int
     """
-    self._lat = latitude
-    self._lng = longitude
-    self._nbits = nbits
+    self.__lat = latitude
+    self.__lng = longitude
+    self.__nbits = nbits
+
+  @property
+  def lat(self):
+    return self.__lat
+
+  @property
+  def lng(self):
+    return self.__lng
   
-  def lat_accuracy(self):
+  @property
+  def nbits(self):
+    return self.__nbits
+  
+  """
+  def __get_lat(self):
+    return self.__lat
+
+  def __get_lng(self):
+    return self.__lng
+
+  def __get_nbits(self):
+    return self.__nbits
+  
+  def __set_lat(self, lat):
+    raise AttributeError("can't set attribute")
+  
+  def __set_lng(self, lat):
+    raise AttributeError("can't set attribute")
+
+  def __set_nbits(self, nbits):
+    raise AttributeError("can't set attribute")
+  
+  lng = property(__get_lng, __set_lng)
+  lat = property(__get_lat, __set_lat)
+  nbits = property(__get_nbits, __set_nbits)
+  """
+
+  @property
+  def lat_error(self):
     """
-    Computes the latitude accuracy according to the number of bits used for encoding
-
-    32 bits (or 16 bits for latitude) has an 305 meter accuracy
-    40 bits (or 20 bits for latitude) has an 19 meter accuracy
-
-    :returns tuple: (maximumr error in meters, maximum error in degrees)
+    see :func:`sentiance.location.lat_error`
     """
-    lat_nbits = np.floor(self._nbits/2)
-    one_degree_dist = Location.POLAR_CIRCUMFERENCE/180
-    max_error = 90*(2**-lat_nbits)
-    return (one_degree_dist*max_error), max_error
+    lat_nbits = np.floor(self.nbits/2)
+    return lat_error(lat_nbits)
 
-  def long_accuracy(self):
+  @property
+  def long_error(self):
     """
-    Computes the longitude accuracy according to the number of bits used for encoding
-
-    Note: the accuracy depends on the latitude (as the earth's circumference is smaller
-    at the non-zero latitudes than it is at the equator)
-
-    :returns tuple: (maximumr error in meters, maximum error in degrees)
+    see :func:`sentiance.location.long_error`
     """
-    lng_nbits = np.ceil(self._nbits/2)
-    one_degree_dist = (Location.EQUATOR_CIRCUMFERENCE/360)*np.cos(np.deg2rad(self._lat))
-    max_error = 180*(2**-lng_nbits)
-    return (one_degree_dist*max_error), max_error
+    lng_nbits = np.ceil(self.nbits/2)
+    return long_error(self.lat, lng_nbits)
  
   def distance(self, loc):
     """
@@ -162,6 +225,13 @@ class Location(tuple):
     TODO: there are faster ways to compute the hash only using bit operations
 
     :returns: a hash for latitude and longitude
+
+    
+    >>>hoboken = Location(51.17165565490723, 4.346981048583984, 36)
+    >>>neighbor1 = Location(51.1720, 4.3476, 36)
+    >>>outside = Location(51.1716,4.3459, 36)
+    >>>hoboken.
+
     """
     if not hasattr(self, "_geohash"):
       minLat = -90
@@ -224,8 +294,8 @@ class Location(tuple):
       self.encode()
         
     loc = decode_geohash(self._geohash, self._nbits)
-    _, max_lat_error = loc.lat_accuracy()
-    _, max_lng_error = loc.long_accuracy()
+    _, max_lat_error = loc.lat_error
+    _, max_lng_error = loc.long_error
     
     return (
       loc._lat - max_lat_error,
@@ -249,21 +319,43 @@ class Location(tuple):
     )
 
 class UserLocations(set):
-    def __init__(self, filepath, nbits, sep=";"):
-        self._nbits = nbits
-        df = pd.read_csv(filepath, sep=sep)
+  """
+  A special set of a user's Location objects where locations are deemed the same when they have the same geohash (although they
+  might have different lat long coordinates)
 
-        for row in df.to_dict(orient="records"):
-            loc = Location(row["latitude"], row["longitude"], self._nbits)
-            self.add(loc)
+  TODO: implement other set operators
+  """
+  def __init__(self, filepath, nbits, sep=";"):
+    """
+    Constructs a set of locations stored in the user's location file
 
-    def __contains__(self, tpl):
-      loc = Location(tpl[0], tpl[1], self._nbits)
-      return super().__contains__(loc)
+    :param filepath: path to the file that contains the user's location, should be csv file with columns latitude and longitude
+    :param nbits: bit precision for encoding the lat long locations (influences which locations are considered the same)
+    """
+    self._nbits = nbits
+    df = pd.read_csv(filepath, sep=sep)
 
-    def add(self, tpl):
-      loc = Location(tpl[0], tpl[1], self._nbits)
-      super().add(loc)
+    for row in df.to_dict(orient="records"):
+      loc = Location(row["latitude"], row["longitude"], self._nbits)
+      self.add(loc)
+
+  def __contains__(self, tpl):
+    """
+    Checks whether a location with 'similar' lat long coordinates exists in the set
+
+    :param tpl: (latitude,longitude) tuple in decimal degrees
+    """
+    loc = Location(tpl[0], tpl[1], self._nbits)
+    return super().__contains__(loc)
+
+  def add(self, tpl):
+    """
+    Adds a location object with the lat long coordinates in the tuple tpl to the set
+
+    :param tpl: (latitude, longitude) tuple in decimal degrees
+    """
+    loc = Location(tpl[0], tpl[1], self._nbits)
+    super().add(loc)
 
 class UserLocationMap(dict):
     def __init__(self, filepath, nbits, sep=";"):
